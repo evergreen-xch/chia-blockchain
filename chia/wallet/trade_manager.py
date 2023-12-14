@@ -174,7 +174,7 @@ class TradeManager:
         # If any of our settlement_payments were spent, this offer was a success!
         if set(our_addition_ids) == set(coin_state_names):
             height = coin_states[0].created_height
-            await self.trade_store.set_status(trade.trade_id, TradeStatus.CONFIRMED, height)
+            await self.trade_store.set_status(trade.trade_id, TradeStatus.CONFIRMED, index=height)
             tx_records: List[TransactionRecord] = await self.calculate_tx_records_for_offer(offer, False)
             for tx in tx_records:
                 if TradeStatus(trade.status) == TradeStatus.PENDING_ACCEPT:
@@ -706,10 +706,22 @@ class TradeManager:
             removal_tree_hash = Program.to([coin_as_list(rem) for rem in grouped_removals]).get_tree_hash()
             # We also need to calculate the sent amount
             removed: int = sum(c.amount for c in grouped_removals)
+            removed_ids: List[bytes32] = [c.name() for c in grouped_removals]
+            all_additions_from_grouped_removals: List[Coin] = [
+                c for c in all_additions if c.parent_coin_info in removed_ids
+            ]
             potential_change_coins: List[Coin] = addition_dict[wid] if wid in addition_dict else []
             change_coins: List[Coin] = [c for c in potential_change_coins if c.parent_coin_info in all_removals]
             change_amount: int = sum(c.amount for c in change_coins)
-            sent_amount: int = removed - change_amount
+            sent_amount: int = (
+                removed
+                - change_amount
+                - (
+                    removed - sum(c.amount for c in all_additions_from_grouped_removals)  # removals - additions == fees
+                    if wallet == self.wallet_state_manager.main_wallet
+                    else 0
+                )
+            )
             txs.append(
                 TransactionRecord(
                     confirmed_at_height=uint32(0),
