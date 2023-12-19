@@ -14,14 +14,14 @@ dependencies = [
     "chiapos==2.0.3",  # proof of space
     "clvm==0.9.8",
     "clvm_tools==0.4.7",  # Currying, Program.to, other conveniences
-    "chia_rs==0.2.13",
+    "chia_rs==0.3.3",
     "clvm-tools-rs==0.1.40",  # Rust implementation of clvm_tools' compiler
     "aiohttp==3.9.1",  # HTTP server for full node rpc
     "aiosqlite==0.19.0",  # asyncio wrapper for sqlite, to store blocks
     "bitstring==4.1.4",  # Binary data management library
     "colorama==0.4.6",  # Colorizes terminal output
     "colorlog==6.8.0",  # Adds color to logs
-    "concurrent-log-handler==0.9.24",  # Concurrently log and rotate logs
+    "concurrent-log-handler==0.9.25",  # Concurrently log and rotate logs
     "cryptography==41.0.7",  # Python cryptography library for TLS - keyring conflict
     "filelock==3.13.1",  # For reading and writing config multiprocess and multithread safely  (non-reentrant locks)
     "keyring==24.3.0",  # Store keys in MacOS Keychain, Windows Credential Locker
