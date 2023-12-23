@@ -74,6 +74,6 @@ class MempoolItem:
             "npc_result": recurse_jsonify(self.npc_result),
             "cost": recurse_jsonify(self.cost),
             "spend_bundle_name": recurse_jsonify(self.spend_bundle_name),
-            # "additions": recurse_jsonify(self.additions),
-            # "removals": recurse_jsonify(self.removals),
+            "additions": recurse_jsonify([]),
+            "removals": recurse_jsonify([]),
         }
