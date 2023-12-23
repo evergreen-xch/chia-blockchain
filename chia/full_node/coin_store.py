@@ -289,6 +289,11 @@ class CoinStore:
             return []
 
         coins = set()
+        names_db: Tuple[Any, ...]
+        if self.db_wrapper.db_version == 2:
+            names_db = tuple(names)
+        else:
+            names_db = tuple([name.hex() for name in names])
 
         async with self.db_wrapper.reader_no_transaction() as conn:
             async with conn.execute(
@@ -297,7 +302,7 @@ class CoinStore:
                 f'WHERE coin_name in ({"?," * (len(names) - 1)}?) '
                 f"AND confirmed_index>=? AND confirmed_index<? "
                 f"{'' if include_spent_coins else 'AND spent_index=0'}",
-                names + [start_height, end_height],
+                names_db + (start_height, end_height),
             ) as cursor:
                 for row in await cursor.fetchall():
                     coin = self.row_to_coin(row)
