@@ -67,13 +67,13 @@ class MempoolItem:
     def removals(self) -> List[Coin]:
         return self.spend_bundle.removals()
 
-    def to_json_dict(self) -> Dict[str, Any]:
+    def to_json_dict(self, send_additions_and_removals=True) -> Dict[str, Any]:
         return {
             "spend_bundle": recurse_jsonify(self.spend_bundle),
             "fee": recurse_jsonify(self.fee),
             "npc_result": recurse_jsonify(self.npc_result),
             "cost": recurse_jsonify(self.cost),
             "spend_bundle_name": recurse_jsonify(self.spend_bundle_name),
-            "additions": recurse_jsonify(self.additions),
-            "removals": recurse_jsonify(self.removals),
+            "additions": recurse_jsonify(self.additions if send_additions_and_removals else []),
+            "removals": recurse_jsonify(self.spend_bundle.removals() if send_additions_and_removals else []),
         }
