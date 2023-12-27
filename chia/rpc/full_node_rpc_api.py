@@ -1104,10 +1104,13 @@ class FullNodeRpcApi:
         ids = list(self.service.mempool_manager.mempool.all_item_ids())
         return {"tx_ids": ids}
 
-    async def get_all_mempool_items(self, _: Dict[str, Any]) -> EndpointResult:
+    async def get_all_mempool_items(self, request: Dict[str, Any]) -> EndpointResult:
         spends = {}
+        send_additions_and_removals = True
+        if "send_additions_and_removals" in request:
+            send_additions_and_removals = request["send_additions_and_removals"]
         for item in self.service.mempool_manager.mempool.all_items():
-            spends[item.name.hex()] = item.to_json_dict()
+            spends[item.name.hex()] = item.to_json_dict(send_additions_and_removals)
         return {"mempool_items": spends}
 
     async def get_mempool_item_by_tx_id(self, request: Dict[str, Any]) -> EndpointResult:
@@ -1116,20 +1119,27 @@ class FullNodeRpcApi:
         include_pending: bool = request.get("include_pending", False)
         tx_id: bytes32 = bytes32.from_hexstr(request["tx_id"])
 
+        send_additions_and_removals = True
+        if "send_additions_and_removals" in request:
+            send_additions_and_removals = request["send_additions_and_removals"]
+
         item = self.service.mempool_manager.get_mempool_item(tx_id, include_pending)
         if item is None:
             raise ValueError(f"Tx id 0x{tx_id.hex()} not in the mempool")
 
-        return {"mempool_item": item.to_json_dict()}
+        return {"mempool_item": item.to_json_dict(send_additions_and_removals)}
 
     async def get_mempool_items_by_coin_name(self, request: Dict[str, Any]) -> EndpointResult:
         if "coin_name" not in request:
             raise ValueError("No coin_name in request")
 
+        send_additions_and_removals = True
+        if "send_additions_and_removals" in request:
+            send_additions_and_removals = request["send_additions_and_removals"]
         coin_name: bytes32 = bytes32.from_hexstr(request["coin_name"])
         items: List[MempoolItem] = self.service.mempool_manager.mempool.get_items_by_coin_id(coin_name)
 
-        return {"mempool_items": [item.to_json_dict() for item in items]}
+        return {"mempool_items": [item.to_json_dict(send_additions_and_removals) for item in items]}
 
     def _get_spendbundle_type_cost(self, name: str) -> uint64:
         """
