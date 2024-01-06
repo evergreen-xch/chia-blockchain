@@ -1106,9 +1106,7 @@ class FullNodeRpcApi:
 
     async def get_all_mempool_items(self, request: Dict[str, Any]) -> EndpointResult:
         spends = {}
-        send_additions_and_removals = True
-        if "send_additions_and_removals" in request:
-            send_additions_and_removals = request["send_additions_and_removals"]
+        send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
         for item in self.service.mempool_manager.mempool.all_items():
             spends[item.name.hex()] = item.to_json_dict(send_additions_and_removals)
         return {"mempool_items": spends}
@@ -1118,10 +1116,7 @@ class FullNodeRpcApi:
             raise ValueError("No tx_id in request")
         include_pending: bool = request.get("include_pending", False)
         tx_id: bytes32 = bytes32.from_hexstr(request["tx_id"])
-
-        send_additions_and_removals = True
-        if "send_additions_and_removals" in request:
-            send_additions_and_removals = request["send_additions_and_removals"]
+        send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
 
         item = self.service.mempool_manager.get_mempool_item(tx_id, include_pending)
         if item is None:
@@ -1132,10 +1127,7 @@ class FullNodeRpcApi:
     async def get_mempool_items_by_coin_name(self, request: Dict[str, Any]) -> EndpointResult:
         if "coin_name" not in request:
             raise ValueError("No coin_name in request")
-
-        send_additions_and_removals = True
-        if "send_additions_and_removals" in request:
-            send_additions_and_removals = request["send_additions_and_removals"]
+        send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
         coin_name: bytes32 = bytes32.from_hexstr(request["coin_name"])
         items: List[MempoolItem] = self.service.mempool_manager.mempool.get_items_by_coin_id(coin_name)
 
