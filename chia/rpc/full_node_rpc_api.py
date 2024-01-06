@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -1107,6 +1108,8 @@ class FullNodeRpcApi:
     async def get_all_mempool_items(self, request: Dict[str, Any]) -> EndpointResult:
         spends = {}
         send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
+        log = logging.getLogger("fullnode_rpc")
+        log.info("Sending Add/Removes: %r", send_additions_and_removals)
         for item in self.service.mempool_manager.mempool.all_items():
             spends[item.name.hex()] = item.to_json_dict(send_additions_and_removals)
         return {"mempool_items": spends}
