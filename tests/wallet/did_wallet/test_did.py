@@ -109,9 +109,7 @@ class TestDIDWallet:
 
         #######################
         all_node_0_wallets = await wallet_node_0.wallet_state_manager.user_store.get_all_wallet_info_entries()
-        print(f"Node 0: {all_node_0_wallets}")
         all_node_1_wallets = await wallet_node_1.wallet_state_manager.user_store.get_all_wallet_info_entries()
-        print(f"Node 1: {all_node_1_wallets}")
         assert (
             json.loads(all_node_0_wallets[1].data)["current_inner"]
             == json.loads(all_node_1_wallets[1].data)["current_inner"]
@@ -255,11 +253,9 @@ class TestDIDWallet:
 
         await full_node_api.farm_blocks_to_wallet(1, wallet_0)
 
-        async def get_coins_with_ph():
+        async def get_coins_with_ph() -> bool:
             coins = await full_node_api.full_node.coin_store.get_coin_records_by_puzzle_hash(True, some_ph)
-            if len(coins) == 1:
-                return True
-            return False
+            return len(coins) == 1
 
         await time_out_assert(15, get_coins_with_ph, True)
         await time_out_assert(45, did_wallet_2.get_confirmed_balance, 0)
@@ -902,24 +898,18 @@ class TestDIDWallet:
         # Test non-singleton coin
         coin = (await wallet.select_coins(uint64(1), DEFAULT_COIN_SELECTION_CONFIG)).pop()
         assert coin.amount % 2 == 1
-        response = await api_0.did_get_info({"coin_id": coin.name().hex()})
+        coin_id = coin.name()
+        response = await api_0.did_get_info({"coin_id": coin_id.hex()})
         assert not response["success"]
 
         # Test multiple odd coins
         odd_amount = uint64(1)
         coin_1 = (
-            await wallet.select_coins(
-                odd_amount, DEFAULT_COIN_SELECTION_CONFIG.override(excluded_coin_ids=[coin.name()])
-            )
+            await wallet.select_coins(odd_amount, DEFAULT_COIN_SELECTION_CONFIG.override(excluded_coin_ids=[coin_id]))
         ).pop()
         assert coin_1.amount % 2 == 0
         [tx] = await wallet.generate_signed_transaction(
-            odd_amount,
-            ph1,
-            DEFAULT_TX_CONFIG.override(
-                excluded_coin_ids=[coin.name()],
-            ),
-            fee,
+            odd_amount, ph1, DEFAULT_TX_CONFIG.override(excluded_coin_ids=[coin_id]), fee
         )
         await wallet.push_transaction(tx)
         await full_node_api.process_transaction_records(records=[tx])
@@ -1250,9 +1240,7 @@ class TestDIDWallet:
 
         #######################
         all_node_0_wallets = await wallet_node_0.wallet_state_manager.user_store.get_all_wallet_info_entries()
-        print(f"Node 0: {all_node_0_wallets}")
         all_node_1_wallets = await wallet_node_1.wallet_state_manager.user_store.get_all_wallet_info_entries()
-        print(f"Node 1: {all_node_1_wallets}")
         assert len(all_node_0_wallets) == len(all_node_1_wallets)
 
         # Note that the inner program we expect is different than the on-chain inner.
