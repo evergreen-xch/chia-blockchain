@@ -989,7 +989,7 @@ class FullNodeRpcApi:
         if not coin_record.spent:
             return
 
-        height= coin_record.spent_block_index
+        height = coin_record.spent_block_index
 
         header_hash = self.service.blockchain.height_to_hash(height)
         assert header_hash is not None
@@ -1002,7 +1002,7 @@ class FullNodeRpcApi:
         if block_generator is None:
             return
 
-        spend_info = get_puzzle_and_solution_for_coin(block_generator, coin_record.coin)
+        spend_info = get_puzzle_and_solution_for_coin(block_generator, coin_record.coin, block.height, self.service.constants)
 
         return CoinSpend(coin_record.coin, spend_info.puzzle, spend_info.solution)
 
