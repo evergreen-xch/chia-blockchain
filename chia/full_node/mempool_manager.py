@@ -185,8 +185,8 @@ class MempoolManager:
         # spends.
         self.nonzero_fee_minimum_fpc = 5
 
-        #BLOCK_SIZE_LIMIT_FACTOR = 0.5
-        self.max_block_clvm_cost = uint64(self.constants.MAX_BLOCK_COST_CLVM)# * BLOCK_SIZE_LIMIT_FACTOR)
+        BLOCK_SIZE_LIMIT_FACTOR = 0.5
+        self.max_block_clvm_cost = uint64(self.constants.MAX_BLOCK_COST_CLVM * BLOCK_SIZE_LIMIT_FACTOR)
         self.mempool_max_total_cost = int(self.constants.MAX_BLOCK_COST_CLVM * self.constants.MEMPOOL_BLOCK_BUFFER)
 
         # Transactions that were unable to enter mempool, used for retry. (they were invalid)

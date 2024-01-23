@@ -491,6 +491,7 @@ class WSChiaConnection:
     async def send_message(self, message: Message) -> bool:
         """Send message sends a message with no tracking / callback."""
         if self.closed:
+            self.log.info("Socket is closed")
             return False
         await self.outgoing_queue.put(message)
         return True
