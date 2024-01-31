@@ -956,6 +956,7 @@ class FullNodeAPI:
             foliage_transaction_block_data: Optional[FoliageTransactionBlock] = None
             reward_chain_block: Optional[RewardChainBlockUnfinished] = None
             if request.include_signature_source_data:
+                self.log.info("Including Source Data")
                 foliage_block_data = unfinished_block.foliage.foliage_block_data
                 reward_chain_block = unfinished_block.reward_chain_block
                 if unfinished_block.is_transaction_block():
