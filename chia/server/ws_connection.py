@@ -605,7 +605,10 @@ class WSChiaConnection:
                 # TODO: fix this special case. This function has rate limits which are too low.
                 if ProtocolMessageTypes(message.type) != ProtocolMessageTypes.respond_peers:
                     asyncio.create_task(self._wait_and_retry(message))
-
+                self.log.error(
+                    f"Peer has been rate limited and will be disconnected: {self.peer_info.host}, "
+                    f"message: {message_type}"
+                )
                 return None
             else:
                 self.log.debug(
@@ -613,7 +616,12 @@ class WSChiaConnection:
                     f"peer: {self.peer_info.host}"
                 )
 
+        if ProtocolMessageTypes(message.type) != ProtocolMessageTypes.request_signed_values:
+            self.log.info(f"Sending request_signed_values to peer: {self.peer_info.host}")
         await self.ws.send_bytes(encoded)
+
+        if ProtocolMessageTypes(message.type) != ProtocolMessageTypes.request_signed_values:
+            self.log.info(f"Sent request_signed_values to peer: {self.peer_info.host}")
         self.log.debug(
             f"-> {ProtocolMessageTypes(message.type).name} to peer {self.peer_info.host} {self.peer_node_id}"
         )
