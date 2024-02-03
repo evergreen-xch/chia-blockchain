@@ -7,10 +7,6 @@ from chia_rs import G2Element
 
 from chia.types.blockchain_format.classgroup import ClassgroupElement
 from chia.types.blockchain_format.foliage import FoliageBlockData, FoliageTransactionBlock
-<<<<<<< HEAD
-
-=======
->>>>>>> bdb038401d28e707e2a6d96c5cbec608ccab7dfc
 from chia.types.blockchain_format.pool_target import PoolTarget
 from chia.types.blockchain_format.proof_of_space import ProofOfSpace
 from chia.types.blockchain_format.reward_chain_block import RewardChainBlockUnfinished
