@@ -432,6 +432,12 @@ class FullNodeAPI:
         if block_hash in self.full_node.full_node_store.requesting_unfinished_blocks:
             return None
 
+        # if we've already learned about an unfinished block with this reward
+        # hash via the v2 protocol, and we've requested it. Assume it's the same
+        # block
+        if block_hash in self.full_node.full_node_store.requesting_unfinished_blocks2:
+            return None
+
         msg = make_msg(
             ProtocolMessageTypes.request_unfinished_block,
             full_node_protocol.RequestUnfinishedBlock(block_hash),
@@ -455,6 +461,70 @@ class FullNodeAPI:
     ) -> Optional[Message]:
         unfinished_block: Optional[UnfinishedBlock] = self.full_node.full_node_store.get_unfinished_block(
             request_unfinished_block.unfinished_reward_hash
+        )
+        if unfinished_block is not None:
+            msg = make_msg(
+                ProtocolMessageTypes.respond_unfinished_block,
+                full_node_protocol.RespondUnfinishedBlock(unfinished_block),
+            )
+            return msg
+        return None
+
+    @api_request()
+    async def new_unfinished_block2(
+        self, new_unfinished_block: full_node_protocol.NewUnfinishedBlock2
+    ) -> Optional[Message]:
+        # Ignore if syncing
+        if self.full_node.sync_store.get_sync_mode():
+            return None
+        block_hash = new_unfinished_block.unfinished_reward_hash
+        foliage_hash = new_unfinished_block.foliage_hash
+        entry, count, have_better = self.full_node.full_node_store.get_unfinished_block2(block_hash, foliage_hash)
+
+        if entry is not None:
+            return None
+
+        if have_better:
+            self.log.info(
+                f"Already have a better Unfinished Block with partial hash {block_hash.hex()} ignoring this one"
+            )
+            return None
+
+        max_duplicate_unfinished_blocks = self.full_node.config.get("max_duplicate_unfinished_blocks", 3)
+        if count > max_duplicate_unfinished_blocks:
+            self.log.info(
+                f"Already have {count} Unfinished Blocks with partial hash {block_hash.hex()} ignoring another one"
+            )
+            return None
+
+        # This prevents us from downloading the same block from many peers
+        if self.full_node.full_node_store.is_requesting_unfinished_block(block_hash, foliage_hash):
+            return None
+
+        msg = make_msg(
+            ProtocolMessageTypes.request_unfinished_block2,
+            full_node_protocol.RequestUnfinishedBlock2(block_hash, foliage_hash),
+        )
+        self.full_node.full_node_store.mark_requesting_unfinished_block(block_hash, foliage_hash)
+
+        # However, we want to eventually download from other peers, if this peer does not respond
+        # Todo: keep track of who it was
+        async def eventually_clear() -> None:
+            await asyncio.sleep(5)
+            self.full_node.full_node_store.remove_requesting_unfinished_block(block_hash, foliage_hash)
+
+        asyncio.create_task(eventually_clear())
+
+        return msg
+
+    @api_request(reply_types=[ProtocolMessageTypes.respond_unfinished_block])
+    async def request_unfinished_block2(
+        self, request_unfinished_block: full_node_protocol.RequestUnfinishedBlock2
+    ) -> Optional[Message]:
+        unfinished_block: Optional[UnfinishedBlock]
+        unfinished_block, _, _ = self.full_node.full_node_store.get_unfinished_block2(
+            request_unfinished_block.unfinished_reward_hash,
+            request_unfinished_block.foliage_hash,
         )
         if unfinished_block is not None:
             msg = make_msg(
@@ -765,8 +835,8 @@ class FullNodeAPI:
                     while not curr_l_tb.is_transaction_block:
                         curr_l_tb = self.full_node.blockchain.block_record(curr_l_tb.prev_hash)
                     try:
-                        mempool_bundle = self.full_node.mempool_manager.create_bundle_from_mempool(
-                            curr_l_tb.header_hash
+                        mempool_bundle = await self.full_node.mempool_manager.create_bundle_from_mempool(
+                            curr_l_tb.header_hash, self.full_node.coin_store.get_unspent_lineage_info_for_puzzle_hash
                         )
                     except Exception as e:
                         self.log.error(f"Traceback: {traceback.format_exc()}")
@@ -882,9 +952,9 @@ class FullNodeAPI:
                 sub_slot_iters = peak.sub_slot_iters
                 for sub_slot in finished_sub_slots:
                     if sub_slot.challenge_chain.new_difficulty is not None:
-                        difficulty = sub_slot.challenge_chain.new_difficulty
+                        difficulty = uint64(sub_slot.challenge_chain.new_difficulty)
                     if sub_slot.challenge_chain.new_sub_slot_iters is not None:
-                        sub_slot_iters = sub_slot.challenge_chain.new_sub_slot_iters
+                        sub_slot_iters = uint64(sub_slot.challenge_chain.new_sub_slot_iters)
 
             required_iters: uint64 = calculate_iterations_quality(
                 self.full_node.constants.DIFFICULTY_CONSTANT_FACTOR,
@@ -953,11 +1023,11 @@ class FullNodeAPI:
 
             foliage_block_data: Optional[FoliageBlockData] = None
             foliage_transaction_block_data: Optional[FoliageTransactionBlock] = None
-            reward_chain_block: Optional[RewardChainBlockUnfinished] = None
+            rc_block_unfinished: Optional[RewardChainBlockUnfinished] = None
             if request.include_signature_source_data:
                 self.log.info("Including Source Data")
                 foliage_block_data = unfinished_block.foliage.foliage_block_data
-                reward_chain_block = unfinished_block.reward_chain_block
+                rc_block_unfinished = unfinished_block.reward_chain_block
                 if unfinished_block.is_transaction_block():
                     foliage_transaction_block_data = unfinished_block.foliage_transaction_block
 
@@ -965,9 +1035,9 @@ class FullNodeAPI:
                 quality_string,
                 foliage_sb_data_hash,
                 foliage_transaction_block_hash,
-                foliage_block_data,
-                foliage_transaction_block_data,
-                reward_chain_block,
+                foliage_block_data=foliage_block_data,
+                foliage_transaction_block_data=foliage_transaction_block_data,
+                rc_block_unfinished=rc_block_unfinished,
             )
             await peer.send_message(make_msg(ProtocolMessageTypes.request_signed_values, message))
 
@@ -1029,14 +1099,9 @@ class FullNodeAPI:
             self.log.warning("Signature not valid. There might be a collision in plots. Ignore this during tests.")
             return None
 
-        fsb2 = dataclasses.replace(
-            candidate.foliage,
-            foliage_block_data_signature=farmer_request.foliage_block_data_signature,
-        )
+        fsb2 = candidate.foliage.replace(foliage_block_data_signature=farmer_request.foliage_block_data_signature)
         if candidate.is_transaction_block():
-            fsb2 = dataclasses.replace(
-                fsb2, foliage_transaction_block_signature=farmer_request.foliage_transaction_block_signature
-            )
+            fsb2 = fsb2.replace(foliage_transaction_block_signature=farmer_request.foliage_transaction_block_signature)
 
         new_candidate = dataclasses.replace(candidate, foliage=fsb2)
         if not self.full_node.has_valid_pool_sig(new_candidate):
@@ -1300,7 +1365,7 @@ class FullNodeAPI:
         await self.full_node.transaction_queue.put(queue_entry, peer_id=None, high_priority=True)
         try:
             with anyio.fail_after(delay=45):
-                status, error = await queue_entry.done
+                status, error = await queue_entry.done.wait()
         except TimeoutError:
             response = wallet_protocol.TransactionAck(spend_name, uint8(MempoolInclusionStatus.PENDING), None)
         else:
@@ -1520,7 +1585,7 @@ class FullNodeAPI:
         # the returned puzzle hashes are the ones we ended up subscribing to.
         # It will have filtered duplicates and ones exceeding the subscription
         # limit.
-        puzzle_hashes = self.full_node.subscriptions.add_ph_subscriptions(
+        puzzle_hashes = self.full_node.subscriptions.add_puzzle_subscriptions(
             peer.peer_node_id, request.puzzle_hashes, max_subscriptions
         )
 

@@ -105,6 +105,7 @@ class FullNodeRpcApi:
             "/get_network_space": self.get_network_space,
             "/get_additions_and_removals": self.get_additions_and_removals,
             "/get_additions_and_removals_with_hints": self.get_additions_and_removals_with_hints,
+            "/get_aggsig_additional_data": self.get_aggsig_additional_data,
             # this function is just here for backwards-compatibility. It will probably
             # be removed in the future
             "/get_initial_freeze_period": self.get_initial_freeze_period,
@@ -565,18 +566,17 @@ class FullNodeRpcApi:
             return {"headers": []}
 
         response_headers: List[UnfinishedHeaderBlock] = []
-        for ub_height, block, _ in (self.service.full_node_store.get_unfinished_blocks()).values():
-            if ub_height == peak.height:
-                unfinished_header_block = UnfinishedHeaderBlock(
-                    block.finished_sub_slots,
-                    block.reward_chain_block,
-                    block.challenge_chain_sp_proof,
-                    block.reward_chain_sp_proof,
-                    block.foliage,
-                    block.foliage_transaction_block,
-                    b"",
-                )
-                response_headers.append(unfinished_header_block)
+        for block in self.service.full_node_store.get_unfinished_blocks(peak.height):
+            unfinished_header_block = UnfinishedHeaderBlock(
+                block.finished_sub_slots,
+                block.reward_chain_block,
+                block.challenge_chain_sp_proof,
+                block.reward_chain_sp_proof,
+                block.foliage,
+                block.foliage_transaction_block,
+                b"",
+            )
+            response_headers.append(unfinished_header_block)
         return {"headers": response_headers}
 
     async def get_network_space(self, request: Dict[str, Any]) -> EndpointResult:
@@ -1100,6 +1100,9 @@ class FullNodeRpcApi:
             "additions": additions_list,
             "removals": removals_list,
         }
+
+    async def get_aggsig_additional_data(self, _: Dict[str, Any]) -> EndpointResult:
+        return {"additional_data": self.service.constants.AGG_SIG_ME_ADDITIONAL_DATA.hex()}
 
     async def get_all_mempool_tx_ids(self, _: Dict[str, Any]) -> EndpointResult:
         ids = list(self.service.mempool_manager.mempool.all_item_ids())

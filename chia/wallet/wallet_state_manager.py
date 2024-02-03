@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import multiprocessing.context
 import time
@@ -42,7 +43,6 @@ from chia.rpc.rpc_server import StateChangedProtocol
 from chia.server.outbound_message import NodeType
 from chia.server.server import ChiaServer
 from chia.server.ws_connection import WSChiaConnection
-from chia.types.announcement import Announcement
 from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.sized_bytes import bytes32
@@ -65,7 +65,13 @@ from chia.wallet.cat_wallet.cat_info import CATCoinData, CATInfo, CRCATInfo
 from chia.wallet.cat_wallet.cat_utils import CAT_MOD, CAT_MOD_HASH, construct_cat_puzzle, match_cat_puzzle
 from chia.wallet.cat_wallet.cat_wallet import CATWallet
 from chia.wallet.cat_wallet.dao_cat_wallet import DAOCATWallet
-from chia.wallet.conditions import Condition, ConditionValidTimes, parse_timelock_info
+from chia.wallet.conditions import (
+    AssertCoinAnnouncement,
+    Condition,
+    ConditionValidTimes,
+    CreateCoinAnnouncement,
+    parse_timelock_info,
+)
 from chia.wallet.dao_wallet.dao_utils import (
     get_p2_singleton_puzhash,
     match_dao_cat_puzzle,
@@ -747,7 +753,7 @@ class WalletStateManager:
             [coin_state.coin.parent_coin_info], peer=peer, fork_height=fork_height
         )
         if len(response) == 0:
-            self.log.warning(f"Could not find a parent coin with ID: {coin_state.coin.parent_coin_info}")
+            self.log.warning(f"Could not find a parent coin with ID: {coin_state.coin.parent_coin_info.hex()}")
             return None, None
         parent_coin_state = response[0]
         assert parent_coin_state.spent_height == coin_state.created_height
@@ -832,7 +838,7 @@ class WalletStateManager:
                 uint16(num_verification.as_int()),
                 singleton_struct,
                 metadata,
-                get_inner_puzzle_from_singleton(coin_spend.puzzle_reveal.to_program()),
+                get_inner_puzzle_from_singleton(coin_spend.puzzle_reveal),
                 parent_coin_state,
             )
             return await self.handle_did(did_data, parent_coin_state, coin_state, coin_spend, peer), did_data
@@ -878,6 +884,7 @@ class WalletStateManager:
                 stop=tx_config.coin_selection_config.max_coin_amount,
             ),
         )
+        all_txs: List[TransactionRecord] = []
         for coin in unspent_coins.records:
             try:
                 metadata: MetadataTypes = coin.parsed_metadata()
@@ -887,12 +894,23 @@ class WalletStateManager:
                     if current_timestamp - coin_timestamp >= metadata.time_lock:
                         clawback_coins[coin.coin] = metadata
                         if len(clawback_coins) >= self.config.get("auto_claim", {}).get("batch_size", 50):
-                            await self.spend_clawback_coins(clawback_coins, tx_fee, tx_config)
+                            txs = await self.spend_clawback_coins(clawback_coins, tx_fee, tx_config)
+                            all_txs.extend(txs)
+                            tx_config = dataclasses.replace(
+                                tx_config,
+                                excluded_coin_ids=[
+                                    *tx_config.excluded_coin_ids,
+                                    *(c.name() for tx in txs for c in tx.removals),
+                                ],
+                            )
                             clawback_coins = {}
             except Exception as e:
                 self.log.error(f"Failed to claim clawback coin {coin.coin.name().hex()}: %s", e)
         if len(clawback_coins) > 0:
-            await self.spend_clawback_coins(clawback_coins, tx_fee, tx_config)
+            all_txs.extend(await self.spend_clawback_coins(clawback_coins, tx_fee, tx_config))
+
+        for tx in all_txs:
+            await self.add_pending_transaction(tx)
 
     async def spend_clawback_coins(
         self,
@@ -901,7 +919,7 @@ class WalletStateManager:
         tx_config: TXConfig,
         force: bool = False,
         extra_conditions: Tuple[Condition, ...] = tuple(),
-    ) -> List[bytes32]:
+    ) -> List[TransactionRecord]:
         assert len(clawback_coins) > 0
         coin_spends: List[CoinSpend] = []
         message: bytes32 = std_hash(b"".join([c.name() for c in clawback_coins.keys()]))
@@ -940,8 +958,9 @@ class WalletStateManager:
                             memos,  # Forward memo of the first coin
                         )
                     ],
-                    coin_announcements=None if len(coin_spends) > 0 or fee == 0 else {message},
-                    conditions=extra_conditions,
+                    conditions=extra_conditions
+                    if len(coin_spends) > 0 or fee == 0
+                    else (*extra_conditions, CreateCoinAnnouncement(message)),
                 )
                 coin_spend: CoinSpend = generate_clawback_spend_bundle(coin, metadata, inner_puzzle, inner_solution)
                 coin_spends.append(coin_spend)
@@ -952,12 +971,18 @@ class WalletStateManager:
         if len(coin_spends) == 0:
             return []
         spend_bundle: SpendBundle = await self.sign_transaction(coin_spends)
+        tx_list: List[TransactionRecord] = []
         if fee > 0:
             chia_tx = await self.main_wallet.create_tandem_xch_tx(
-                fee, tx_config, Announcement(coin_spends[0].coin.name(), message)
+                fee,
+                tx_config,
+                extra_conditions=(
+                    AssertCoinAnnouncement(asserted_id=coin_spends[0].coin.name(), asserted_msg=message),
+                ),
             )
             assert chia_tx.spend_bundle is not None
             spend_bundle = SpendBundle.aggregate([spend_bundle, chia_tx.spend_bundle])
+            tx_list.append(dataclasses.replace(chia_tx, spend_bundle=None))
         assert derivation_record is not None
         tx_record = TransactionRecord(
             confirmed_at_height=uint32(0),
@@ -978,8 +1003,8 @@ class WalletStateManager:
             memos=list(compute_memos(spend_bundle).items()),
             valid_times=parse_timelock_info(extra_conditions),
         )
-        await self.add_pending_transaction(tx_record)
-        return [tx_record.name]
+        tx_list.append(tx_record)
+        return tx_list
 
     async def filter_spam(self, new_coin_state: List[CoinState]) -> List[CoinState]:
         xch_spam_amount = self.config.get("xch_spam_amount", 1000000)

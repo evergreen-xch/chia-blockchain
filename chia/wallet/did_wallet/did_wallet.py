@@ -11,7 +11,6 @@ from chia_rs import AugSchemeMPL, G1Element, G2Element
 
 from chia.protocols.wallet_protocol import CoinState
 from chia.server.ws_connection import WSChiaConnection
-from chia.types.announcement import Announcement
 from chia.types.blockchain_format.coin import Coin
 from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.sized_bytes import bytes32
@@ -20,7 +19,13 @@ from chia.types.signing_mode import CHIP_0002_SIGN_MESSAGE_PREFIX, SigningMode
 from chia.types.spend_bundle import SpendBundle
 from chia.util.condition_tools import conditions_dict_for_solution, pkm_pairs_for_conditions_dict
 from chia.util.ints import uint16, uint32, uint64, uint128
-from chia.wallet.conditions import Condition, ConditionValidTimes, parse_timelock_info
+from chia.wallet.conditions import (
+    AssertCoinAnnouncement,
+    Condition,
+    ConditionValidTimes,
+    CreateCoinAnnouncement,
+    parse_timelock_info,
+)
 from chia.wallet.derivation_record import DerivationRecord
 from chia.wallet.derive_keys import master_sk_to_wallet_sk_unhardened
 from chia.wallet.did_wallet import did_wallet_puzzles
@@ -134,14 +139,14 @@ class DIDWallet:
             raise ValueError("Not enough balance")
 
         try:
-            spend_bundle = await self.generate_new_decentralised_id(amount, DEFAULT_TX_CONFIG, fee)
+            txs = await self.generate_new_decentralised_id(amount, DEFAULT_TX_CONFIG, fee)
         except Exception:
             await wallet_state_manager.user_store.delete_wallet(self.id())
             raise
 
-        if spend_bundle is None:
-            await wallet_state_manager.user_store.delete_wallet(self.id())
-            raise ValueError("Failed to create spend.")
+        for tx in txs:
+            await self.wallet_state_manager.add_pending_transaction(tx)
+
         await self.wallet_state_manager.add_new_wallet(self)
 
         return self
@@ -376,7 +381,7 @@ class DIDWallet:
                 num_verification=uint16(num_verification.as_int()),
                 singleton_struct=singleton_struct,
                 metadata=metadata,
-                inner_puzzle=get_inner_puzzle_from_singleton(coin_spend.puzzle_reveal.to_program()),
+                inner_puzzle=get_inner_puzzle_from_singleton(coin_spend.puzzle_reveal),
                 coin_state=parent_state,
             )
         if parent is None:
@@ -424,6 +429,7 @@ class DIDWallet:
         )
 
         await self.add_parent(coin.name(), future_parent)
+        await self.wallet_state_manager.add_interested_coin_ids([coin.name()])
 
     def create_backup(self) -> str:
         """
@@ -498,7 +504,7 @@ class DIDWallet:
                 assert children_state.created_height
                 parent_spend = await fetch_coin_spend(uint32(children_state.created_height), parent_coin, peer)
                 assert parent_spend is not None
-                parent_innerpuz = get_inner_puzzle_from_singleton(parent_spend.puzzle_reveal.to_program())
+                parent_innerpuz = get_inner_puzzle_from_singleton(parent_spend.puzzle_reveal)
                 assert parent_innerpuz is not None
                 parent_info = LineageProof(
                     parent_name=parent_coin.parent_coin_info,
@@ -560,7 +566,7 @@ class DIDWallet:
 
     async def create_update_spend(
         self, tx_config: TXConfig, fee: uint64 = uint64(0), extra_conditions: Tuple[Condition, ...] = tuple()
-    ):
+    ) -> List[TransactionRecord]:
         assert self.did_info.current_inner is not None
         assert self.did_info.origin_coin is not None
         coin = await self.get_coin()
@@ -577,8 +583,7 @@ class DIDWallet:
                     memos=[p2_puzzle.get_tree_hash()],
                 )
             ],
-            coin_announcements={coin.name()},
-            conditions=extra_conditions,
+            conditions=(*extra_conditions, CreateCoinAnnouncement(coin.name())),
         )
         innersol: Program = Program.to([1, p2_solution])
         # full solution is (corehash parent_info my_amount innerpuz_reveal solution)
@@ -625,17 +630,17 @@ class DIDWallet:
         unsigned_spend_bundle = SpendBundle(list_of_coinspends, G2Element())
         spend_bundle = await self.sign(unsigned_spend_bundle)
         if fee > 0:
-            announcement_to_make = coin.name()
+            coin_name = coin.name()
             chia_tx = await self.standard_wallet.create_tandem_xch_tx(
-                fee, tx_config, Announcement(coin.name(), announcement_to_make)
+                fee,
+                tx_config,
+                extra_conditions=(AssertCoinAnnouncement(asserted_id=coin_name, asserted_msg=coin_name),),
             )
         else:
-            announcement_to_make = None
             chia_tx = None
         if chia_tx is not None and chia_tx.spend_bundle is not None:
             spend_bundle = SpendBundle.aggregate([spend_bundle, chia_tx.spend_bundle])
             chia_tx = dataclasses.replace(chia_tx, spend_bundle=None)
-            await self.wallet_state_manager.add_pending_transaction(chia_tx)
         did_record = TransactionRecord(
             confirmed_at_height=uint32(0),
             created_at_time=uint64(int(time.time())),
@@ -655,9 +660,12 @@ class DIDWallet:
             memos=list(compute_memos(spend_bundle).items()),
             valid_times=parse_timelock_info(extra_conditions),
         )
-        await self.wallet_state_manager.add_pending_transaction(did_record)
 
-        return spend_bundle
+        txs = [did_record]
+        if chia_tx is not None:
+            txs.append(chia_tx)
+
+        return txs
 
     async def transfer_did(
         self,
@@ -666,7 +674,7 @@ class DIDWallet:
         with_recovery: bool,
         tx_config: TXConfig,
         extra_conditions: Tuple[Condition, ...] = tuple(),
-    ) -> TransactionRecord:
+    ) -> List[TransactionRecord]:
         """
         Transfer the current DID to another owner
         :param new_puzhash: New owner's p2_puzzle
@@ -691,8 +699,7 @@ class DIDWallet:
         )
         p2_solution = self.standard_wallet.make_solution(
             primaries=[Payment(new_did_puzhash, uint64(coin.amount), [new_puzhash])],
-            coin_announcements={coin.name()},
-            conditions=extra_conditions,
+            conditions=(*extra_conditions, CreateCoinAnnouncement(coin.name())),
         )
         # Need to include backup list reveal here, even we are don't recover
         # innerpuz solution is
@@ -723,16 +730,17 @@ class DIDWallet:
         unsigned_spend_bundle = SpendBundle(list_of_coinspends, G2Element())
         spend_bundle = await self.sign(unsigned_spend_bundle)
         if fee > 0:
-            announcement_to_make = coin.name()
+            coin_name = coin.name()
             chia_tx = await self.standard_wallet.create_tandem_xch_tx(
-                fee, tx_config, Announcement(coin.name(), announcement_to_make)
+                fee,
+                tx_config,
+                extra_conditions=(AssertCoinAnnouncement(asserted_id=coin_name, asserted_msg=coin_name),),
             )
         else:
             chia_tx = None
         if chia_tx is not None and chia_tx.spend_bundle is not None:
             spend_bundle = SpendBundle.aggregate([spend_bundle, chia_tx.spend_bundle])
             chia_tx = dataclasses.replace(chia_tx, spend_bundle=None)
-            await self.wallet_state_manager.add_pending_transaction(chia_tx)
         did_record = TransactionRecord(
             confirmed_at_height=uint32(0),
             created_at_time=uint64(int(time.time())),
@@ -752,17 +760,15 @@ class DIDWallet:
             memos=list(compute_memos(spend_bundle).items()),
             valid_times=parse_timelock_info(extra_conditions),
         )
-        await self.wallet_state_manager.add_pending_transaction(did_record)
-        return did_record
+        txs = [did_record]
+        if chia_tx is not None:
+            txs.append(chia_tx)
+        return txs
 
     # The message spend can tests\wallet\rpc\test_wallet_rpc.py send messages and also change your innerpuz
     async def create_message_spend(
         self,
         tx_config: TXConfig,
-        coin_announcements: Optional[Set[bytes]] = None,
-        puzzle_announcements: Optional[Set[bytes]] = None,
-        coin_announcements_to_assert: Optional[Set[Announcement]] = None,
-        puzzle_announcements_to_assert: Optional[Set[Announcement]] = None,
         extra_conditions: Tuple[Condition, ...] = tuple(),
     ) -> TransactionRecord:
         assert self.did_info.current_inner is not None
@@ -786,14 +792,6 @@ class DIDWallet:
             )
         p2_solution = self.standard_wallet.make_solution(
             primaries=[Payment(puzzle_hash=new_innerpuzzle_hash, amount=uint64(coin.amount), memos=[p2_ph])],
-            puzzle_announcements=puzzle_announcements,
-            coin_announcements=coin_announcements,
-            coin_announcements_to_assert={a.name() for a in coin_announcements_to_assert}
-            if coin_announcements_to_assert is not None
-            else None,
-            puzzle_announcements_to_assert={a.name() for a in puzzle_announcements_to_assert}
-            if puzzle_announcements_to_assert is not None
-            else None,
             conditions=extra_conditions,
         )
         # innerpuz solution is (mode p2_solution)
@@ -841,7 +839,7 @@ class DIDWallet:
         )
 
     # This is used to cash out, or update the id_list
-    async def create_exit_spend(self, puzhash: bytes32, tx_config: TXConfig):
+    async def create_exit_spend(self, puzhash: bytes32, tx_config: TXConfig) -> List[TransactionRecord]:
         assert self.did_info.current_inner is not None
         assert self.did_info.origin_coin is not None
         coin = await self.get_coin()
@@ -892,8 +890,7 @@ class DIDWallet:
             memos=list(compute_memos(spend_bundle).items()),
             valid_times=ConditionValidTimes(),
         )
-        await self.wallet_state_manager.add_pending_transaction(did_record)
-        return spend_bundle
+        return [did_record]
 
     # Pushes a SpendBundle to create a message coin on the blockchain
     # Returns a SpendBundle for the recoverer to spend the message coin
@@ -904,9 +901,12 @@ class DIDWallet:
         pubkey: G1Element,
         tx_config: TXConfig,
         extra_conditions: Tuple[Condition, ...] = tuple(),
-    ) -> Tuple[SpendBundle, str]:
+    ) -> Tuple[TransactionRecord, SpendBundle, str]:
         """
         Create an attestment
+        TODO:
+            1. We should use/respect `tx_config` (reuse_puzhash and co)
+            2. We should take a fee as it's a requirement for every transaction function to do so
         :param recovering_coin_name: Coin ID of the DID
         :param newpuz: New puzzle hash
         :param pubkey: New wallet pubkey
@@ -976,8 +976,7 @@ class DIDWallet:
         )
         attest_str: str = f"{self.get_my_DID()}:{bytes(message_spend_bundle).hex()}:{coin.parent_coin_info.hex()}:"
         attest_str += f"{self.did_info.current_inner.get_tree_hash().hex()}:{coin.amount}"
-        await self.wallet_state_manager.add_pending_transaction(did_record)
-        return message_spend_bundle, attest_str
+        return did_record, message_spend_bundle, attest_str
 
     async def get_info_for_recovery(self) -> Optional[Tuple[bytes32, bytes32, uint64]]:
         assert self.did_info.current_inner is not None
@@ -1029,7 +1028,7 @@ class DIDWallet:
         parent_innerpuzhash_amounts_for_recovery_ids: List[Tuple[bytes, bytes, int]],
         pubkey: G1Element,
         spend_bundle: SpendBundle,
-    ) -> SpendBundle:
+    ) -> List[TransactionRecord]:
         assert self.did_info.origin_coin is not None
 
         # innersol is mode new_amount_or_p2_solution new_inner_puzhash parent_innerpuzhash_amounts_for_recovery_ids pubkey recovery_list_reveal my_id)  # noqa
@@ -1100,7 +1099,6 @@ class DIDWallet:
             memos=list(compute_memos(spend_bundle).items()),
             valid_times=ConditionValidTimes(),
         )
-        await self.wallet_state_manager.add_pending_transaction(did_record)
         new_did_info = DIDInfo(
             origin_coin=self.did_info.origin_coin,
             backup_ids=self.did_info.backup_ids,
@@ -1114,7 +1112,7 @@ class DIDWallet:
             metadata=self.did_info.metadata,
         )
         await self.save_info(new_did_info)
-        return spend_bundle
+        return [did_record]
 
     async def get_new_p2_inner_hash(self) -> bytes32:
         puzzle = await self.get_new_p2_inner_puzzle()
@@ -1227,9 +1225,7 @@ class DIDWallet:
                 private = await self.wallet_state_manager.get_private_key(puzzle_hash)
                 synthetic_secret_key = calculate_synthetic_secret_key(private, DEFAULT_HIDDEN_PUZZLE_HASH)
                 conditions = conditions_dict_for_solution(
-                    spend.puzzle_reveal.to_program(),
-                    spend.solution.to_program(),
-                    self.wallet_state_manager.constants.MAX_BLOCK_COST_CLVM,
+                    spend.puzzle_reveal, spend.solution, self.wallet_state_manager.constants.MAX_BLOCK_COST_CLVM
                 )
                 synthetic_pk = synthetic_secret_key.get_g1()
                 for pk, msg in pkm_pairs_for_conditions_dict(
@@ -1246,14 +1242,12 @@ class DIDWallet:
 
     async def generate_new_decentralised_id(
         self, amount: uint64, tx_config: TXConfig, fee: uint64 = uint64(0)
-    ) -> Optional[SpendBundle]:
+    ) -> List[TransactionRecord]:
         """
         This must be called under the wallet state manager lock
         """
 
         coins = await self.standard_wallet.select_coins(uint64(amount + fee), tx_config.coin_selection_config)
-        if coins is None:
-            return None
 
         origin = coins.copy().pop()
         genesis_launcher_puz = SINGLETON_LAUNCHER_PUZZLE
@@ -1264,9 +1258,7 @@ class DIDWallet:
         did_full_puz = create_singleton_puzzle(did_inner, launcher_coin.name())
         did_puzzle_hash = did_full_puz.get_tree_hash()
 
-        announcement_set: Set[Announcement] = set()
         announcement_message = Program.to([did_puzzle_hash, amount, bytes(0x80)]).get_tree_hash()
-        announcement_set.add(Announcement(launcher_coin.name(), announcement_message))
 
         [tx_record] = await self.standard_wallet.generate_signed_transaction(
             amount=amount,
@@ -1275,13 +1267,11 @@ class DIDWallet:
             fee=fee,
             coins=coins,
             primaries=None,
-            ignore_max_send_amount=False,
-            coin_announcements_to_consume=announcement_set,
             origin_id=origin.name(),
+            extra_conditions=(
+                AssertCoinAnnouncement(asserted_id=launcher_coin.name(), asserted_msg=announcement_message),
+            ),
         )
-
-        if tx_record.spend_bundle is None:
-            return None
 
         genesis_launcher_solution = Program.to([did_puzzle_hash, amount, bytes(0x80)])
 
@@ -1316,6 +1306,7 @@ class DIDWallet:
         )
         await self.save_info(did_info)
         eve_spend = await self.generate_eve_spend(eve_coin, did_full_puz, did_inner)
+        assert tx_record.spend_bundle is not None
         full_spend = SpendBundle.aggregate([tx_record.spend_bundle, eve_spend, launcher_sb])
         assert self.did_info.origin_coin is not None
         assert self.did_info.current_inner is not None
@@ -1340,9 +1331,7 @@ class DIDWallet:
             valid_times=ConditionValidTimes(),
         )
         regular_record = dataclasses.replace(tx_record, spend_bundle=None)
-        await self.wallet_state_manager.add_pending_transaction(regular_record)
-        await self.wallet_state_manager.add_pending_transaction(did_record)
-        return full_spend
+        return [did_record, regular_record]
 
     async def generate_eve_spend(
         self,
@@ -1513,7 +1502,7 @@ class DIDWallet:
         )
         if len(spendable_coins) == 0:
             raise RuntimeError("DID is not currently spendable")
-        return list(spendable_coins)[0].coin
+        return sorted(list(spendable_coins), key=lambda c: c.confirmed_block_height, reverse=True)[0].coin
 
     async def match_hinted_coin(self, coin: Coin, hint: bytes32) -> bool:
         if self.did_info.origin_coin is None:

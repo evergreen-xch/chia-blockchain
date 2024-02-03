@@ -119,8 +119,8 @@ class FarmerAPI:
 
                 sp_src_data: Optional[List[Optional[SignatureRequestSourceData]]] = None
                 if (
-                        new_proof_of_space.include_source_signature_data
-                        or new_proof_of_space.farmer_reward_address_override is not None
+                    new_proof_of_space.include_source_signature_data
+                    or new_proof_of_space.farmer_reward_address_override is not None
                 ):
                     assert sp.sp_source_data
 
@@ -145,6 +145,7 @@ class FarmerAPI:
                         )
 
                     sp_src_data = [cc_data, rc_data]
+
                 # Proceed at getting the signatures for this PoSpace
                 request = harvester_protocol.RequestSignatures(
                     new_proof_of_space.plot_identifier,
@@ -152,6 +153,7 @@ class FarmerAPI:
                     new_proof_of_space.sp_hash,
                     [sp.challenge_chain_sp, sp.reward_chain_sp],
                     message_data=sp_src_data,
+                    rc_block_unfinished=None,
                 )
 
                 if new_proof_of_space.sp_hash not in self.farmer.proofs_of_space:
@@ -271,7 +273,7 @@ class FarmerAPI:
                 m_to_sign = payload.get_hash()
                 m_src_data: Optional[List[Optional[SignatureRequestSourceData]]] = None
 
-                if (
+                if (  # pragma: no cover
                         new_proof_of_space.include_source_signature_data
                         or new_proof_of_space.farmer_reward_address_override is not None
                 ):

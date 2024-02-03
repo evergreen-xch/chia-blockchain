@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import List, Optional, Tuple
 from enum import IntEnum
 
 from chia_rs import G1Element, G2Element
 
 from chia.types.blockchain_format.proof_of_space import ProofOfSpace
+from chia.types.blockchain_format.reward_chain_block import RewardChainBlockUnfinished
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.util.ints import int16, uint8, uint32, uint64
 from chia.util.streamable import Streamable, streamable
@@ -58,9 +60,9 @@ class NewProofOfSpace(Streamable):
     plot_identifier: str
     proof: ProofOfSpace
     signage_point_index: uint8
-    include_source_signature_data: bool = False
-    farmer_reward_address_override: Optional[bytes32] = None
-    fee_info: Optional[ProofOfSpaceFeeInfo] = None
+    include_source_signature_data: bool
+    farmer_reward_address_override: Optional[bytes32]
+    fee_info: Optional[ProofOfSpaceFeeInfo]
 
 
 # Source data corresponding to the hash that is sent to the Harvester for signing
@@ -90,7 +92,9 @@ class RequestSignatures(Streamable):
     challenge_hash: bytes32
     sp_hash: bytes32
     messages: List[bytes32]
-    message_data: Optional[List[Optional[SignatureRequestSourceData]]] = None
+    # This, and rc_block_unfinished are only set when using a third-party harvester (see CHIP-22)
+    message_data: Optional[List[Optional[SignatureRequestSourceData]]]
+    rc_block_unfinished: Optional[RewardChainBlockUnfinished]
 
 
 @streamable
@@ -102,8 +106,8 @@ class RespondSignatures(Streamable):
     local_pk: G1Element
     farmer_pk: G1Element
     message_signatures: List[Tuple[bytes32, G2Element]]
-    include_source_signature_data: bool = False
-    farmer_reward_address_override: Optional[bytes32] = None
+    include_source_signature_data: bool
+    farmer_reward_address_override: Optional[bytes32]
 
 
 @streamable
