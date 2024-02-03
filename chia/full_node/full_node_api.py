@@ -951,7 +951,6 @@ class FullNodeAPI:
                 foliage_transaction_block_hash = bytes32([0] * 32)
             assert foliage_transaction_block_hash is not None
 
-            self.log.info("Creating SP Data")
             foliage_block_data: Optional[FoliageBlockData] = None
             foliage_transaction_block_data: Optional[FoliageTransactionBlock] = None
             reward_chain_block: Optional[RewardChainBlockUnfinished] = None
@@ -962,7 +961,6 @@ class FullNodeAPI:
                 if unfinished_block.is_transaction_block():
                     foliage_transaction_block_data = unfinished_block.foliage_transaction_block
 
-            self.log.info("Creating Signed Values")
             message = farmer_protocol.RequestSignedValues(
                 quality_string,
                 foliage_sb_data_hash,
@@ -971,9 +969,7 @@ class FullNodeAPI:
                 foliage_transaction_block_data,
                 reward_chain_block,
             )
-            self.log.info("Sending Signed Values Message")
             await peer.send_message(make_msg(ProtocolMessageTypes.request_signed_values, message))
-            self.log.info("Sent Signed Values Request")
 
             # Adds backup in case the first one fails
             if unfinished_block.is_transaction_block() and unfinished_block.transactions_generator is not None:
