@@ -144,8 +144,7 @@ class DIDWallet:
             await wallet_state_manager.user_store.delete_wallet(self.id())
             raise
 
-        for tx in txs:
-            await self.wallet_state_manager.add_pending_transaction(tx)
+        await self.wallet_state_manager.add_pending_transactions(txs)
 
         await self.wallet_state_manager.add_new_wallet(self)
 
@@ -1411,6 +1410,9 @@ class DIDWallet:
         return True
 
     async def update_metadata(self, metadata: Dict[str, str]) -> bool:
+        # validate metadata
+        if not all(isinstance(k, str) and isinstance(v, str) for k, v in metadata.items()):
+            raise ValueError("Metadata key value pairs must be strings.")
         did_info = DIDInfo(
             origin_coin=self.did_info.origin_coin,
             backup_ids=self.did_info.backup_ids,
