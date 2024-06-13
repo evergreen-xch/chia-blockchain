@@ -200,6 +200,7 @@ class DataLayer:
         async with DataStore.managed(database=self.db_path, sql_log_path=sql_log_path) as self._data_store:
             self._wallet_rpc = await self.wallet_rpc_init
 
+            await self._data_store.migrate_db()
             self.periodically_manage_data_task = asyncio.create_task(self.periodically_manage_data())
             try:
                 yield
@@ -257,6 +258,7 @@ class DataLayer:
     ) -> Optional[TransactionRecord]:
         status = Status.PENDING if submit_on_chain else Status.PENDING_BATCH
         await self.batch_insert(tree_id=tree_id, changelist=changelist, status=status)
+        await self.data_store.clean_node_table()
 
         if submit_on_chain:
             return await self.publish_update(tree_id=tree_id, fee=fee)
@@ -816,7 +818,7 @@ class DataLayer:
                             f"Can't subscribe to locally stored {local_id}: {type(e)} {e} {traceback.format_exc()}"
                         )
 
-            work_queue = asyncio.Queue[Job[Subscription]]()
+            work_queue: asyncio.Queue[Job[Subscription]] = asyncio.Queue()
             async with QueuedAsyncPool.managed(
                 name="DataLayer subscription update pool",
                 worker_async_callable=self.update_subscription,
@@ -1002,7 +1004,8 @@ class DataLayer:
 
             verify_offer(maker=offer.maker, taker=offer.taker, summary=summary)
 
-            return offer
+        await self.data_store.clean_node_table()
+        return offer
 
     async def take_offer(
         self,
@@ -1060,6 +1063,8 @@ class DataLayer:
                     for our_offer_store in taker
                 },
             }
+
+        await self.data_store.clean_node_table()
 
         # Excluding wallet from transaction since failures in the wallet may occur
         # after the transaction is submitted to the chain.  If we roll back data we
