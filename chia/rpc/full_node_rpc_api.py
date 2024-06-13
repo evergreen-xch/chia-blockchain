@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -104,10 +105,10 @@ class FullNodeRpcApi:
             "/get_network_space": self.get_network_space,
             "/get_additions_and_removals": self.get_additions_and_removals,
             "/get_additions_and_removals_with_hints": self.get_additions_and_removals_with_hints,
+            "/get_aggsig_additional_data": self.get_aggsig_additional_data,
             # this function is just here for backwards-compatibility. It will probably
             # be removed in the future
             "/get_initial_freeze_period": self.get_initial_freeze_period,
-            "/get_network_info": self.get_network_info,
             "/get_recent_signage_point_or_eos": self.get_recent_signage_point_or_eos,
             # Coins
             "/get_coin_records_by_puzzle_hash": self.get_coin_records_by_puzzle_hash,
@@ -291,11 +292,6 @@ class FullNodeRpcApi:
         }
         self.cached_blockchain_state = dict(response["blockchain_state"])
         return response
-
-    async def get_network_info(self, _: Dict[str, Any]) -> EndpointResult:
-        network_name = self.service.config["selected_network"]
-        address_prefix = self.service.config["network_overrides"]["config"][network_name]["address_prefix"]
-        return {"network_name": network_name, "network_prefix": address_prefix}
 
     async def get_recent_signage_point_or_eos(self, request: Dict[str, Any]) -> EndpointResult:
         if "sp_hash" not in request:
@@ -564,18 +560,17 @@ class FullNodeRpcApi:
             return {"headers": []}
 
         response_headers: List[UnfinishedHeaderBlock] = []
-        for ub_height, block, _ in (self.service.full_node_store.get_unfinished_blocks()).values():
-            if ub_height == peak.height:
-                unfinished_header_block = UnfinishedHeaderBlock(
-                    block.finished_sub_slots,
-                    block.reward_chain_block,
-                    block.challenge_chain_sp_proof,
-                    block.reward_chain_sp_proof,
-                    block.foliage,
-                    block.foliage_transaction_block,
-                    b"",
-                )
-                response_headers.append(unfinished_header_block)
+        for block in self.service.full_node_store.get_unfinished_blocks(peak.height):
+            unfinished_header_block = UnfinishedHeaderBlock(
+                block.finished_sub_slots,
+                block.reward_chain_block,
+                block.challenge_chain_sp_proof,
+                block.reward_chain_sp_proof,
+                block.foliage,
+                block.foliage_transaction_block,
+                b"",
+            )
+            response_headers.append(unfinished_header_block)
         return {"headers": response_headers}
 
     async def get_network_space(self, request: Dict[str, Any]) -> EndpointResult:
@@ -988,7 +983,7 @@ class FullNodeRpcApi:
         if not coin_record.spent:
             return
 
-        height= coin_record.spent_block_index
+        height = coin_record.spent_block_index
 
         header_hash = self.service.blockchain.height_to_hash(height)
         assert header_hash is not None
@@ -1001,7 +996,7 @@ class FullNodeRpcApi:
         if block_generator is None:
             return
 
-        spend_info = get_puzzle_and_solution_for_coin(block_generator, coin_record.coin)
+        spend_info = get_puzzle_and_solution_for_coin(block_generator, coin_record.coin, block.height, self.service.constants)
 
         return CoinSpend(coin_record.coin, spend_info.puzzle, spend_info.solution)
 
@@ -1100,15 +1095,16 @@ class FullNodeRpcApi:
             "removals": removals_list,
         }
 
+    async def get_aggsig_additional_data(self, _: Dict[str, Any]) -> EndpointResult:
+        return {"additional_data": self.service.constants.AGG_SIG_ME_ADDITIONAL_DATA.hex()}
+
     async def get_all_mempool_tx_ids(self, _: Dict[str, Any]) -> EndpointResult:
         ids = list(self.service.mempool_manager.mempool.all_item_ids())
         return {"tx_ids": ids}
 
     async def get_all_mempool_items(self, request: Dict[str, Any]) -> EndpointResult:
         spends = {}
-        send_additions_and_removals = True
-        if "send_additions_and_removals" in request:
-            send_additions_and_removals = request["send_additions_and_removals"]
+        send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
         for item in self.service.mempool_manager.mempool.all_items():
             spends[item.name.hex()] = item.to_json_dict(send_additions_and_removals)
         return {"mempool_items": spends}
@@ -1118,10 +1114,7 @@ class FullNodeRpcApi:
             raise ValueError("No tx_id in request")
         include_pending: bool = request.get("include_pending", False)
         tx_id: bytes32 = bytes32.from_hexstr(request["tx_id"])
-
-        send_additions_and_removals = True
-        if "send_additions_and_removals" in request:
-            send_additions_and_removals = request["send_additions_and_removals"]
+        send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
 
         item = self.service.mempool_manager.get_mempool_item(tx_id, include_pending)
         if item is None:
@@ -1132,10 +1125,7 @@ class FullNodeRpcApi:
     async def get_mempool_items_by_coin_name(self, request: Dict[str, Any]) -> EndpointResult:
         if "coin_name" not in request:
             raise ValueError("No coin_name in request")
-
-        send_additions_and_removals = True
-        if "send_additions_and_removals" in request:
-            send_additions_and_removals = request["send_additions_and_removals"]
+        send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
         coin_name: bytes32 = bytes32.from_hexstr(request["coin_name"])
         items: List[MempoolItem] = self.service.mempool_manager.mempool.get_items_by_coin_id(coin_name)
 

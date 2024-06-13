@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import logging
 import math
 import pathlib
@@ -707,10 +706,10 @@ def _create_sub_epoch_data(
 ) -> SubEpochData:
     reward_chain_hash: bytes32 = sub_epoch_summary.reward_chain_hash
     #  Number of subblocks overflow in previous slot
-    previous_sub_epoch_overflows: uint8 = sub_epoch_summary.num_blocks_overflow  # total in sub epoch - expected
+    previous_sub_epoch_overflows = sub_epoch_summary.num_blocks_overflow  # total in sub epoch - expected
     #  New work difficulty and iterations per sub-slot
-    sub_slot_iters: Optional[uint64] = sub_epoch_summary.new_sub_slot_iters
-    new_difficulty: Optional[uint64] = sub_epoch_summary.new_difficulty
+    sub_slot_iters = sub_epoch_summary.new_sub_slot_iters
+    new_difficulty = sub_epoch_summary.new_difficulty
     return SubEpochData(reward_chain_hash, previous_sub_epoch_overflows, sub_slot_iters, new_difficulty)
 
 
@@ -766,12 +765,16 @@ def handle_finished_slots(end_of_slot: EndOfSubSlotBundle, icc_end_of_slot_info:
         None,
         None,
         None,
-        None
-        if end_of_slot.proofs.challenge_chain_slot_proof is None
-        else end_of_slot.proofs.challenge_chain_slot_proof,
-        None
-        if end_of_slot.proofs.infused_challenge_chain_slot_proof is None
-        else end_of_slot.proofs.infused_challenge_chain_slot_proof,
+        (
+            None
+            if end_of_slot.proofs.challenge_chain_slot_proof is None
+            else end_of_slot.proofs.challenge_chain_slot_proof
+        ),
+        (
+            None
+            if end_of_slot.proofs.infused_challenge_chain_slot_proof is None
+            else end_of_slot.proofs.infused_challenge_chain_slot_proof
+        ),
         end_of_slot.challenge_chain.challenge_chain_end_of_slot_vdf,
         icc_end_of_slot_info,
         None,
@@ -1240,8 +1243,8 @@ def validate_recent_blocks(
             overflow = is_overflow_block(constants, block.reward_chain_block.signage_point_index)
             if not adjusted:
                 assert prev_block_record is not None
-                prev_block_record = dataclasses.replace(
-                    prev_block_record, deficit=uint8(deficit % constants.MIN_BLOCKS_PER_CHALLENGE_BLOCK)
+                prev_block_record = prev_block_record.replace(
+                    deficit=uint8(deficit % constants.MIN_BLOCKS_PER_CHALLENGE_BLOCK)
                 )
                 sub_blocks.add_block_record(prev_block_record)
                 adjusted = True
@@ -1558,8 +1561,8 @@ def get_sp_total_iters(
     assert sub_slot_data.cc_ip_vdf_info is not None
     assert sub_slot_data.total_iters is not None
     assert sub_slot_data.signage_point_index is not None
-    sp_iters: uint64 = calculate_sp_iters(constants, ssi, sub_slot_data.signage_point_index)
-    ip_iters: uint64 = uint64(sub_slot_data.cc_ip_vdf_info.number_of_iterations)
+    sp_iters = calculate_sp_iters(constants, ssi, sub_slot_data.signage_point_index)
+    ip_iters = sub_slot_data.cc_ip_vdf_info.number_of_iterations
     sp_sub_slot_total_iters = uint128(sub_slot_data.total_iters - ip_iters)
     if is_overflow:
         sp_sub_slot_total_iters = uint128(sp_sub_slot_total_iters - ssi)

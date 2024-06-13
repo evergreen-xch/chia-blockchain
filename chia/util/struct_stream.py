@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import BinaryIO, ClassVar, SupportsIndex, SupportsInt, Type, TypeVar, Union
+from typing import BinaryIO, ClassVar, Optional, SupportsIndex, SupportsInt, Type, TypeVar, Union
 
 from typing_extensions import Protocol
 
@@ -9,8 +9,7 @@ _T_StructStream = TypeVar("_T_StructStream", bound="StructStream")
 
 # https://github.com/python/typeshed/blob/c2182fdd3e572a1220c70ad9c28fd908b70fb19b/stdlib/_typeshed/__init__.pyi#L68-L69
 class SupportsTrunc(Protocol):
-    def __trunc__(self) -> int:
-        ...
+    def __trunc__(self) -> int: ...
 
 
 def parse_metadata_from_name(cls: Type[_T_StructStream]) -> Type[_T_StructStream]:
@@ -69,6 +68,13 @@ class StructStream(int):
         super().__init__()
         if not (self.MINIMUM <= self <= self.MAXIMUM):
             raise ValueError(f"Value {self} does not fit into {type(self).__name__}")
+
+    @classmethod
+    def construct_optional(cls: Type[_T_StructStream], val: Optional[int]) -> Optional[_T_StructStream]:
+        if val is None:
+            return None
+        else:
+            return cls(val)
 
     @classmethod
     def parse(cls: Type[_T_StructStream], f: BinaryIO) -> _T_StructStream:

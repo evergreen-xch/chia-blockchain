@@ -169,7 +169,7 @@ def compute_additions_unchecked(sb: SpendBundle) -> List[Coin]:
             if op != ConditionOpcode.CREATE_COIN.value:
                 continue
             puzzle_hash = next(atoms).as_atom()
-            amount = next(atoms).as_int()
+            amount = uint64(next(atoms).as_int())
             ret.append(Coin(parent_id, puzzle_hash, amount))
     return ret
 
@@ -232,12 +232,12 @@ class BlockTools:
         if automated_testing:
             # Hold onto the wrappers so that they can keep track of whether the certs/keys
             # are in use by another BlockTools instance.
-            self.ssl_ca_cert_and_key_wrapper: SSLTestCollateralWrapper[
-                SSLTestCACertAndPrivateKey
-            ] = get_next_private_ca_cert_and_key()
-            self.ssl_nodes_certs_and_keys_wrapper: SSLTestCollateralWrapper[
-                SSLTestNodeCertsAndKeys
-            ] = get_next_nodes_certs_and_keys()
+            self.ssl_ca_cert_and_key_wrapper: SSLTestCollateralWrapper[SSLTestCACertAndPrivateKey] = (
+                get_next_private_ca_cert_and_key()
+            )
+            self.ssl_nodes_certs_and_keys_wrapper: SSLTestCollateralWrapper[SSLTestNodeCertsAndKeys] = (
+                get_next_nodes_certs_and_keys()
+            )
             create_default_chia_config(root_path)
             create_all_ssl(
                 root_path,
@@ -1230,7 +1230,7 @@ class BlockTools:
                                 previous_generator = compressor_arg
 
                         blocks_added_this_sub_slot += 1
-                        self.log.info(f"Created block {block_record.height } ov=True, iters {block_record.total_iters}")
+                        self.log.info(f"Created block {block_record.height} ov=True, iters {block_record.total_iters}")
                         num_blocks -= 1
 
                         blocks[full_block.header_hash] = block_record
@@ -2023,13 +2023,20 @@ async def create_block_tools_async(
     root_path: Optional[Path] = None,
     keychain: Optional[Keychain] = None,
     config_overrides: Optional[Dict[str, Any]] = None,
+    num_og_plots: int = 15,
+    num_pool_plots: int = 5,
+    num_non_keychain_plots: int = 3,
 ) -> BlockTools:
     global create_block_tools_async_count
     create_block_tools_async_count += 1
     print(f"  create_block_tools_async called {create_block_tools_async_count} times")
     bt = BlockTools(constants, root_path, keychain, config_overrides=config_overrides)
     await bt.setup_keys()
-    await bt.setup_plots()
+    await bt.setup_plots(
+        num_og_plots=num_og_plots,
+        num_pool_plots=num_pool_plots,
+        num_non_keychain_plots=num_non_keychain_plots,
+    )
 
     return bt
 
@@ -2050,8 +2057,10 @@ def create_block_tools(
     return bt
 
 
-def make_unfinished_block(block: FullBlock, constants: ConsensusConstants) -> UnfinishedBlock:
-    if is_overflow_block(constants, block.reward_chain_block.signage_point_index):
+def make_unfinished_block(
+    block: FullBlock, constants: ConsensusConstants, *, force_overflow: bool = False
+) -> UnfinishedBlock:
+    if force_overflow or is_overflow_block(constants, block.reward_chain_block.signage_point_index):
         finished_ss = block.finished_sub_slots[:-1]
     else:
         finished_ss = block.finished_sub_slots
