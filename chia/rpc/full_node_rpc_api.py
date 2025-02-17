@@ -109,7 +109,6 @@ class FullNodeRpcApi:
             "/get_network_space": self.get_network_space,
             "/get_additions_and_removals": self.get_additions_and_removals,
             "/get_additions_and_removals_with_hints": self.get_additions_and_removals_with_hints,
-            # this function is just here for backwards-compatibility. It will probably
             "/get_aggsig_additional_data": self.get_aggsig_additional_data,
             "/get_recent_signage_point_or_eos": self.get_recent_signage_point_or_eos,
             # Coins
