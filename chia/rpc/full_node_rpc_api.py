@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, cast
 
 from chia.consensus.block_record import BlockRecord
 from chia.consensus.blockchain import Blockchain, BlockchainMutexPriority
@@ -1069,8 +1069,8 @@ class FullNodeRpcApi:
         async with self.service.blockchain.priority_mutex.acquire(priority=BlockchainMutexPriority.low):
             if self.service.blockchain.height_to_hash(block.height) != header_hash:
                 raise ValueError(f"Block at {header_hash.hex()} is no longer in the blockchain (it's in a fork)")
-            additions: List[CoinRecord] = await self.service.coin_store.get_coins_added_at_height(block.height)
-            removals: List[CoinRecord] = await self.service.coin_store.get_coins_removed_at_height(block.height)
+            additions: list[CoinRecord] = await self.service.coin_store.get_coins_added_at_height(block.height)
+            removals: list[CoinRecord] = await self.service.coin_store.get_coins_removed_at_height(block.height)
 
         additions_coin_ids = [cr.name for cr in additions]
         removals_coin_ids = [cr.name for cr in removals]
@@ -1106,7 +1106,6 @@ class FullNodeRpcApi:
 
     async def get_all_mempool_items(self, _: dict[str, Any]) -> EndpointResult:
         spends = {}
-        send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
         for item in self.service.mempool_manager.mempool.all_items():
             spends[item.name.hex()] = item.to_json_dict()
         return {"mempool_items": spends}
@@ -1116,18 +1115,15 @@ class FullNodeRpcApi:
             raise ValueError("No tx_id in request")
         include_pending: bool = request.get("include_pending", False)
         tx_id: bytes32 = bytes32.from_hexstr(request["tx_id"])
-        send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
 
         item = self.service.mempool_manager.get_mempool_item(tx_id, include_pending)
         if item is None:
             raise ValueError(f"Tx id 0x{tx_id.hex()} not in the mempool")
 
-        return {"mempool_item": item.to_json_dict()}
-
     async def get_mempool_items_by_coin_name(self, request: dict[str, Any]) -> EndpointResult:
         if "coin_name" not in request:
             raise ValueError("No coin_name in request")
-        send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
+
         coin_name: bytes32 = bytes32.from_hexstr(request["coin_name"])
         items = self.service.mempool_manager.mempool.get_items_by_coin_id(coin_name)
 
