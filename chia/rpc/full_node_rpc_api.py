@@ -690,7 +690,7 @@ class FullNodeRpcApi:
             coin_id = coin_record.coin.name()
 
             if block is not None and block.transactions_generator is not None:
-                block_generator: Optional[BlockGenerator] = await get_block_generator(block)
+                block_generator: Optional[BlockGenerator] = await get_block_generator(self.service.blockchain.lookup_block_generators, block)
                 assert block_generator is not None
                 if coin_record.spent_block_index > 0:
                     spend_info = get_puzzle_and_solution_for_coin(
@@ -971,7 +971,7 @@ class FullNodeRpcApi:
             if block is None or block.transactions_generator is None:
                 coin_spends[coin_name.hex()] = None
             else:
-                block_generator: Optional[BlockGenerator] = await get_block_generator(block)
+                block_generator: Optional[BlockGenerator] = await get_block_generator(self.service.blockchain.lookup_block_generators, block)
                 assert block_generator is not None
                 spend_info = get_puzzle_and_solution_for_coin(
                     block_generator, coin_record.coin, block.height, self.service.constants
@@ -992,7 +992,7 @@ class FullNodeRpcApi:
         if block is None or block.transactions_generator is None:
             return
 
-        block_generator: Optional[BlockGenerator] = await get_block_generator(block)
+        block_generator: Optional[BlockGenerator] = await get_block_generator(self.service.blockchain.lookup_block_generators, block)
         if block_generator is None:
             return
 
