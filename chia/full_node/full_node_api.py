@@ -1037,6 +1037,7 @@ class FullNodeAPI:
                 height = uint32(prev_b.height + 1)
             else:
                 height = uint32(0)
+            self.log.info("Adding candidate the unfinished block")
             self.full_node.full_node_store.add_candidate_block(quality_string, height, unfinished_block)
 
             foliage_sb_data_hash = unfinished_block.foliage.foliage_block_data.get_hash()
@@ -1050,6 +1051,7 @@ class FullNodeAPI:
             foliage_transaction_block_data: Optional[FoliageTransactionBlock] = None
             rc_block_unfinished: Optional[RewardChainBlockUnfinished] = None
             if request.include_signature_source_data:
+                self.log.info("Including Source Data")
                 foliage_block_data = unfinished_block.foliage.foliage_block_data
                 rc_block_unfinished = unfinished_block.reward_chain_block
                 if unfinished_block.is_transaction_block():
@@ -1148,10 +1150,17 @@ class FullNodeAPI:
                 )
                 # All unfinished blocks that we create will have the foliage transaction block and hash
                 assert unfinished_block.foliage.foliage_transaction_block_hash is not None
+
+                foliage_block_data: Optional[FoliageBlockData] = unfinished_block.foliage.foliage_block_data
+                foliage_transaction_block_data: Optional[FoliageTransactionBlock] = unfinished_block.foliage_transaction_block
+                reward_chain_block: Optional[RewardChainBlockUnfinished] = unfinished_block.reward_chain_block
                 message = farmer_protocol.RequestSignedValues(
                     farmer_request.quality_string,
                     unfinished_block.foliage.foliage_block_data.get_hash(),
                     unfinished_block.foliage.foliage_transaction_block_hash,
+                    foliage_block_data,
+                    foliage_transaction_block_data,
+                    reward_chain_block,
                 )
                 await peer.send_message(make_msg(ProtocolMessageTypes.request_signed_values, message))
         return None

@@ -277,8 +277,8 @@ class FarmerAPI:
                 m_src_data: Optional[list[Optional[SignatureRequestSourceData]]] = None
 
                 if (  # pragma: no cover
-                    new_proof_of_space.include_source_signature_data
-                    or new_proof_of_space.farmer_reward_address_override is not None
+                        new_proof_of_space.include_source_signature_data
+                        or new_proof_of_space.farmer_reward_address_override is not None
                 ):
                     m_src_data = [SignatureRequestSourceData(uint8(SigningDataKind.PARTIAL), bytes(payload))]
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, Optional, cast
 
@@ -110,6 +111,7 @@ class FullNodeRpcApi:
             "/get_additions_and_removals": self.get_additions_and_removals,
             "/get_additions_and_removals_with_hints": self.get_additions_and_removals_with_hints,
             "/get_aggsig_additional_data": self.get_aggsig_additional_data,
+          
             "/get_recent_signage_point_or_eos": self.get_recent_signage_point_or_eos,
             # Coins
             "/get_coin_records_by_puzzle_hash": self.get_coin_records_by_puzzle_hash,
@@ -983,7 +985,7 @@ class FullNodeRpcApi:
         if not coin_record.spent:
             return
 
-        height= coin_record.spent_block_index
+        height = coin_record.spent_block_index
 
         header_hash = self.service.blockchain.height_to_hash(height)
         assert header_hash is not None
@@ -996,7 +998,7 @@ class FullNodeRpcApi:
         if block_generator is None:
             return
 
-        spend_info = get_puzzle_and_solution_for_coin(block_generator, coin_record.coin)
+        spend_info = get_puzzle_and_solution_for_coin(block_generator, coin_record.coin, block.height, self.service.constants)
 
         return CoinSpend(coin_record.coin, spend_info.puzzle, spend_info.solution)
 
@@ -1094,7 +1096,8 @@ class FullNodeRpcApi:
             "additions": additions_list,
             "removals": removals_list,
         }
-    async def get_aggsig_additional_data(self, _: dict[str, Any]) -> EndpointResult:
+
+    async def get_aggsig_additional_data(self, _: Dict[str, Any]) -> EndpointResult:
         return {"additional_data": self.service.constants.AGG_SIG_ME_ADDITIONAL_DATA.hex()}
 
     async def get_all_mempool_tx_ids(self, _: dict[str, Any]) -> EndpointResult:
@@ -1103,6 +1106,7 @@ class FullNodeRpcApi:
 
     async def get_all_mempool_items(self, _: dict[str, Any]) -> EndpointResult:
         spends = {}
+        send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
         for item in self.service.mempool_manager.mempool.all_items():
             spends[item.name.hex()] = item.to_json_dict()
         return {"mempool_items": spends}
@@ -1112,6 +1116,7 @@ class FullNodeRpcApi:
             raise ValueError("No tx_id in request")
         include_pending: bool = request.get("include_pending", False)
         tx_id: bytes32 = bytes32.from_hexstr(request["tx_id"])
+        send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
 
         item = self.service.mempool_manager.get_mempool_item(tx_id, include_pending)
         if item is None:
@@ -1122,7 +1127,7 @@ class FullNodeRpcApi:
     async def get_mempool_items_by_coin_name(self, request: dict[str, Any]) -> EndpointResult:
         if "coin_name" not in request:
             raise ValueError("No coin_name in request")
-
+        send_additions_and_removals: bool = request.get("send_additions_and_removals", True)
         coin_name: bytes32 = bytes32.from_hexstr(request["coin_name"])
         items = self.service.mempool_manager.mempool.get_items_by_coin_id(coin_name)
 
