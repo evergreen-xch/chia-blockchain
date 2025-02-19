@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import dataclasses
 import logging
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Optional
 
 import pytest
 from chia_rs import Coin, G2Element
 
-from chia.clvm.spend_sim import SimClient, SpendSim, sim_and_client
+from chia._tests.util.spend_sim import SimClient, SpendSim, sim_and_client
 from chia.consensus.constants import ConsensusConstants
 from chia.consensus.default_constants import DEFAULT_CONSTANTS
 from chia.full_node.bitcoin_fee_estimator import BitcoinFeeEstimator
@@ -15,6 +14,7 @@ from chia.types.blockchain_format.program import Program
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.coin_spend import make_spend
 from chia.types.spend_bundle import SpendBundle
+from chia.util.ints import uint8, uint64
 
 log = logging.getLogger(__name__)
 
@@ -22,10 +22,9 @@ the_puzzle_hash = bytes32(
     bytes.fromhex("9dcf97a184f32623d11a73124ceb99a5709b083721e878a16d78f596718ba7b2")
 )  # Program.to(1)
 
-NEW_DEFAULT_CONSTANTS: ConsensusConstants = dataclasses.replace(
-    DEFAULT_CONSTANTS,
-    MAX_BLOCK_COST_CLVM=300000000,
-    MEMPOOL_BLOCK_BUFFER=1,
+NEW_DEFAULT_CONSTANTS: ConsensusConstants = DEFAULT_CONSTANTS.replace(
+    MAX_BLOCK_COST_CLVM=uint64(300000000),
+    MEMPOOL_BLOCK_BUFFER=uint8(1),
 )
 
 
@@ -33,7 +32,7 @@ async def farm(
     sim: SpendSim,
     puzzle_hash: bytes32,
     item_inclusion_filter: Optional[Callable[[bytes32], bool]] = None,
-) -> Tuple[List[Coin], List[Coin], List[Coin]]:
+) -> tuple[list[Coin], list[Coin], list[Coin]]:
     additions, removals = await sim.farm_block(puzzle_hash)  # , item_inclusion_filter)
     height = sim.get_height()
     new_reward_coins = sim.block_records[height].reward_claims_incorporated
@@ -52,7 +51,7 @@ def make_tx_sb(from_coin: Coin) -> SpendBundle:
 
 async def init_test(
     sim: SpendSim, cli: SimClient, puzzle_hash: bytes32, spends_per_block: int
-) -> Tuple[BitcoinFeeEstimator, List[Coin], List[Coin]]:
+) -> tuple[BitcoinFeeEstimator, list[Coin], list[Coin]]:
     new_reward_coins = []
     spend_coins = []
     fee_coins = []
@@ -80,11 +79,11 @@ async def init_test(
 @pytest.mark.anyio
 async def test_mempool_inclusion_filter_basic() -> None:
     async with sim_and_client(defaults=NEW_DEFAULT_CONSTANTS, pass_prefarm=False) as (sim, cli):
-        estimator, spend_coins, fee_coins = await init_test(sim, cli, the_puzzle_hash, 1)
+        _estimator, spend_coins, _fee_coins = await init_test(sim, cli, the_puzzle_hash, 1)
         assert sim.mempool_manager.mempool.size() == 0
 
         spend_bundle: SpendBundle = make_tx_sb(spend_coins[0])
-        status, error = await cli.push_tx(spend_bundle)
+        _status, error = await cli.push_tx(spend_bundle)
         assert sim.mempool_manager.mempool.size() == 1
         assert error is None
 
@@ -97,11 +96,11 @@ async def test_mempool_inclusion_filter_basic() -> None:
         def include_all(bundle_name: bytes32) -> bool:
             return True
 
-        additions, removals = await sim.farm_block(the_puzzle_hash, item_inclusion_filter=include_none)
+        _additions, removals = await sim.farm_block(the_puzzle_hash, item_inclusion_filter=include_none)
         assert sim.mempool_manager.mempool.size() == 1
         assert removals == []
 
-        additions, removals = await sim.farm_block(the_puzzle_hash, item_inclusion_filter=include_all)
+        _additions, removals = await sim.farm_block(the_puzzle_hash, item_inclusion_filter=include_all)
         assert sim.mempool_manager.mempool.size() == 0
         removal_ids = [c.name() for c in removals]
         assert mempool_item.name not in removal_ids
@@ -110,7 +109,7 @@ async def test_mempool_inclusion_filter_basic() -> None:
 @pytest.mark.anyio
 async def test_mempoolitem_height_added(db_version: int) -> None:
     async with sim_and_client(defaults=NEW_DEFAULT_CONSTANTS, pass_prefarm=False) as (sim, cli):
-        estimator, spend_coins, fee_coins = await init_test(sim, cli, the_puzzle_hash, 1)
+        _estimator, spend_coins, _fee_coins = await init_test(sim, cli, the_puzzle_hash, 1)
         assert sim.mempool_manager.mempool.size() == 0
 
         spend_bundle: SpendBundle = make_tx_sb(spend_coins[0])
@@ -127,7 +126,7 @@ async def test_mempoolitem_height_added(db_version: int) -> None:
             assert mempool_item
             return bundle_name != mempool_item.name
 
-        additions, removals = await sim.farm_block(the_puzzle_hash, item_inclusion_filter=ignore_spend)
+        _additions, removals = await sim.farm_block(the_puzzle_hash, item_inclusion_filter=ignore_spend)
         removal_ids = [c.name() for c in removals]
         assert mempool_item.name not in removal_ids
 
@@ -140,7 +139,7 @@ async def test_mempoolitem_height_added(db_version: int) -> None:
         assert mempool_item2.height_added_to_mempool == mempool_item2.height_added_to_mempool
 
         # Now farm it into the next block
-        additions, removals = await sim.farm_block(the_puzzle_hash)
+        _additions, removals = await sim.farm_block(the_puzzle_hash)
         assert sim.mempool_manager.mempool.size() == 0
         assert len(removals) == 1
 

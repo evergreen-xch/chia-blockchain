@@ -7,8 +7,8 @@ from typing import List, Set, Tuple, Dict, Optional
 import typing_extensions
 
 from chia.types.blockchain_format.sized_bytes import bytes32
+from chia.util.batches import to_batches
 from chia.util.db_wrapper import SQLITE_MAX_VARIABLE_NUMBER, DBWrapper2
-from chia.util.misc import to_batches
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class HintStore:
             await conn.execute("CREATE INDEX IF NOT EXISTS hint_index on hints(hint)")
         return self
 
-    async def get_coin_ids(self, hint: bytes, *, max_items: int = 50000) -> List[bytes32]:
+    async def get_coin_ids(self, hint: bytes, *, max_items: int = 50000) -> list[bytes32]:
         async with self.db_wrapper.reader_no_transaction() as conn:
             cursor = await conn.execute("SELECT coin_id from hints WHERE hint=? LIMIT ?", (hint, max_items))
             rows = await cursor.fetchall()

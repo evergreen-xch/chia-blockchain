@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional, Type, TypeVar
+from typing import Optional, TypeVar
 
 from chia.protocols.wallet_protocol import CoinState
 from chia.types.blockchain_format.program import Program
@@ -91,7 +91,7 @@ class UncurriedNFT(Streamable):
     trade_price_percentage: Optional[uint16]
 
     @classmethod
-    def uncurry(cls: Type[_T_UncurriedNFT], mod: Program, curried_args: Program) -> Optional[_T_UncurriedNFT]:
+    def uncurry(cls: type[_T_UncurriedNFT], mod: Program, curried_args: Program) -> Optional[_T_UncurriedNFT]:
         """
         Try to uncurry a NFT puzzle
         :param cls UncurriedNFT class
@@ -144,11 +144,11 @@ class UncurriedNFT(Streamable):
                     edition_number = kv_pair.rest()
                 if kv_pair.first().as_atom() == b"st":
                     edition_total = kv_pair.rest()
-            current_did = None
+            current_did: Optional[bytes32] = None
             transfer_program = None
             transfer_program_args = None
-            royalty_address = None
-            royalty_percentage = None
+            royalty_address: Optional[bytes32] = None
+            royalty_percentage: Optional[uint16] = None
             nft_inner_puzzle_mod = None
             mod, ol_args = inner_puzzle.uncurry()
             supports_did = False
@@ -204,7 +204,7 @@ class UncurriedNFT(Streamable):
     def get_innermost_solution(self, solution: Program) -> Program:
         state_layer_inner_solution: Program = solution.at("rrff")
         if self.supports_did:
-            return state_layer_inner_solution.first()  # type: ignore
+            return state_layer_inner_solution.first()
         else:
             return state_layer_inner_solution
 

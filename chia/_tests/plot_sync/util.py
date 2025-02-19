@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import contextlib
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import AsyncIterator, Optional
+from typing import Optional
 
+from chia._tests.util.split_managers import SplitAsyncManager, split_async_manager
 from chia._tests.util.time_out_assert import time_out_assert
 from chia.harvester.harvester import Harvester
 from chia.plot_sync.sender import Sender
@@ -14,7 +16,6 @@ from chia.types.aliases import FarmerService, HarvesterService
 from chia.types.blockchain_format.sized_bytes import bytes32
 from chia.types.peer_info import PeerInfo, UnresolvedPeerInfo
 from chia.util.ints import uint16, uint64
-from chia.util.misc import SplitAsyncManager, split_async_manager
 
 
 @dataclass

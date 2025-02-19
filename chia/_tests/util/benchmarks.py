@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import random
-from typing import Tuple
 
-import pkg_resources
+import importlib_resources
 from chia_rs import AugSchemeMPL, ClassgroupElement, Coin, G1Element, G2Element, VDFInfo, VDFProof
 
 from chia.consensus.coinbase import create_farmer_coin, create_pool_coin
@@ -20,12 +19,11 @@ from chia.util.ints import uint8, uint32, uint64, uint128
 # farmer puzzle hash
 ph = bytes32(b"a" * 32)
 
-clvm_generator_bin_path = pkg_resources.resource_filename(__name__, "clvm_generator.bin")
-with open(clvm_generator_bin_path, "rb") as f:
-    clvm_generator = f.read()
+clvm_generator_bin_path = importlib_resources.files(__name__.rpartition(".")[0]).joinpath("clvm_generator.bin")
+clvm_generator = clvm_generator_bin_path.read_bytes()
 
 
-def rewards(height: uint32) -> Tuple[Coin, Coin]:
+def rewards(height: uint32) -> tuple[Coin, Coin]:
     farmer_coin = create_farmer_coin(height, ph, uint64(250000000), DEFAULT_CONSTANTS.GENESIS_CHALLENGE)
     pool_coin = create_pool_coin(height, ph, uint64(1750000000), DEFAULT_CONSTANTS.GENESIS_CHALLENGE)
     return farmer_coin, pool_coin

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Set, Tuple
 
 import aiohttp
 from cryptography import x509
@@ -11,7 +10,8 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 
 from chia._tests.util.time_out_assert import time_out_assert
-from chia.protocols.shared_protocol import capabilities
+from chia.apis import ApiProtocolRegistry
+from chia.protocols.shared_protocol import default_capabilities
 from chia.server.outbound_message import NodeType
 from chia.server.server import ChiaServer, ssl_context_for_client
 from chia.server.ssl_context import chia_ssl_ca_paths, private_ssl_ca_paths
@@ -39,23 +39,34 @@ async def disconnect_all_and_reconnect(server: ChiaServer, reconnect_to: ChiaSer
 
 
 async def add_dummy_connection(
-    server: ChiaServer, self_hostname: str, dummy_port: int, type: NodeType = NodeType.FULL_NODE
-) -> Tuple[asyncio.Queue, bytes32]:
-    wsc, peer_id = await add_dummy_connection_wsc(server, self_hostname, dummy_port, type)
+    server: ChiaServer,
+    self_hostname: str,
+    dummy_port: int,
+    type: NodeType = NodeType.FULL_NODE,
+    *,
+    additional_capabilities: list[tuple[uint16, str]] = [],
+) -> tuple[asyncio.Queue, bytes32]:
+    wsc, peer_id = await add_dummy_connection_wsc(
+        server, self_hostname, dummy_port, type, additional_capabilities=additional_capabilities
+    )
 
     return wsc.incoming_queue, peer_id
 
 
 async def add_dummy_connection_wsc(
-    server: ChiaServer, self_hostname: str, dummy_port: int, type: NodeType = NodeType.FULL_NODE
-) -> Tuple[WSChiaConnection, bytes32]:
+    server: ChiaServer,
+    self_hostname: str,
+    dummy_port: int,
+    type: NodeType = NodeType.FULL_NODE,
+    additional_capabilities: list[tuple[uint16, str]] = [],
+) -> tuple[WSChiaConnection, bytes32]:
     timeout = aiohttp.ClientTimeout(total=10)
     session = aiohttp.ClientSession(timeout=timeout)
     config = load_config(server.root_path, "config.yaml")
 
     ca_crt_path: Path
     ca_key_path: Path
-    authenticated_client_types: Set[NodeType] = {NodeType.HARVESTER}
+    authenticated_client_types: set[NodeType] = {NodeType.HARVESTER}
     if type in authenticated_client_types:
         private_ca_crt_path, private_ca_key_path = private_ssl_ca_paths(server.root_path, config)
         ca_crt_path = private_ca_crt_path
@@ -86,7 +97,8 @@ async def add_dummy_connection_wsc(
         peer_id,
         100,
         30,
-        local_capabilities_for_handshake=capabilities,
+        local_capabilities_for_handshake=default_capabilities[type] + additional_capabilities,
+        class_for_type=ApiProtocolRegistry,
     )
     await wsc.perform_handshake(server._network_id, dummy_port, type)
     if wsc.incoming_message_task is not None:
