@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import List, Set, Tuple, Dict, Optional
 
 import typing_extensions
 
@@ -39,16 +38,16 @@ class HintStore:
             await cursor.close()
         return [bytes32(row[0]) for row in rows]
 
-    async def get_coin_ids_multi(self, hints: Set[bytes], *, max_items: int = 50000) -> List[bytes32]:
-        coin_ids: List[bytes32] = []
+    async def get_coin_ids_multi(self, hints: set[bytes], *, max_items: int = 50000) -> list[bytes32]:
+        coin_ids: list[bytes32] = []
 
         async with self.db_wrapper.reader_no_transaction() as conn:
             for batch in to_batches(hints, SQLITE_MAX_VARIABLE_NUMBER):
-                hints_db: Tuple[bytes, ...] = tuple(batch.entries)
+                hints_db: tuple[bytes, ...] = tuple(batch.entries)
                 cursor = await conn.execute(
                     f"SELECT coin_id from hints INDEXED BY hint_index "
                     f'WHERE hint IN ({"?," * (len(batch.entries) - 1)}?) LIMIT ?',
-                    hints_db + (max_items,),
+                    (*hints_db, max_items),
                 )
                 rows = await cursor.fetchall()
                 coin_ids.extend([bytes32(row[0]) for row in rows])
@@ -56,7 +55,23 @@ class HintStore:
 
         return coin_ids
 
-    async def add_hints(self, coin_hint_list: List[Tuple[bytes32, bytes]]) -> None:
+    async def get_hints(self, coin_ids: list[bytes32]) -> list[bytes32]:
+        hints: list[bytes32] = []
+
+        async with self.db_wrapper.reader_no_transaction() as conn:
+            for batch in to_batches(coin_ids, SQLITE_MAX_VARIABLE_NUMBER):
+                coin_ids_db: tuple[bytes32, ...] = tuple(batch.entries)
+                cursor = await conn.execute(
+                    f'SELECT hint from hints WHERE coin_id IN ({"?," * (len(batch.entries) - 1)}?)',
+                    coin_ids_db,
+                )
+                rows = await cursor.fetchall()
+                hints.extend([bytes32(row[0]) for row in rows if len(row[0]) == 32])
+                await cursor.close()
+
+        return hints
+
+    async def add_hints(self, coin_hint_list: list[tuple[bytes32, bytes]]) -> None:
         if len(coin_hint_list) == 0:
             return None
 
@@ -76,8 +91,7 @@ class HintStore:
 
         [count] = row
         return int(count)
-
-
+    
     async def get_coin_ids_by_hints(self, hints: List[bytes]) -> List[bytes32]:
         hints = list(hints)
         if len(hints) == 0:

@@ -530,7 +530,6 @@ class WSChiaConnection:
     async def send_message(self, message: Message) -> bool:
         """Send message sends a message with no tracking / callback."""
         if self.closed:
-            self.log.info("Socket is closed")
             return False
         await self.outgoing_queue.put(message)
         return True
@@ -651,11 +650,8 @@ class WSChiaConnection:
 
                 # TODO: fix this special case. This function has rate limits which are too low.
                 if ProtocolMessageTypes(message.type) != ProtocolMessageTypes.respond_peers:
-                    asyncio.create_task(self._wait_and_retry(message))
-                self.log.error(
-                    f"Peer has been rate limited and will be disconnected: {self.peer_info.host}, "
-                    f"message: {message_type}"
-                )
+                    create_referenced_task(self._wait_and_retry(message), known_unreferenced=True)
+
                 return None
             else:
                 self.log.debug(
